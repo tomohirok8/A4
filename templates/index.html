@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>株ポートフォリオ</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f4f2; --surface-1: #fcfcfb; --border: #e2e1dc;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+    --grid: #e8e7e2;
+    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+    --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
+    --gain: #1a7f37; --loss: #c62828; --accent: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #33332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+      --grid: #2a2a27;
+      --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+      --series-5: #d55181; --series-6: #0ca30c; --series-7: #9085e9; --series-8: #e66767;
+      --gain: #4cc76a; --loss: #f07171; --accent: #3987e5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 14px/1.5 -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .sub { color: var(--text-secondary); margin: 0 0 20px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+          padding: 16px; margin-bottom: 20px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .toolbar .spacer { flex: 1; }
+  button { font: inherit; padding: 7px 14px; border-radius: 7px; cursor: pointer;
+           border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary); }
+  button:hover { border-color: var(--text-muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: wait; }
+  button.icon { padding: 2px 8px; color: var(--text-muted); border-color: transparent; background: none; }
+  button.icon:hover { color: var(--loss); }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { text-align: left; font-weight: 600; color: var(--text-secondary); font-size: 12px; }
+  th.num, td.num { text-align: right; }
+  tfoot td { font-weight: 600; border-bottom: none; border-top: 2px solid var(--border); }
+  td input { font: inherit; width: 100%; min-width: 70px; padding: 4px 6px; border-radius: 5px;
+             border: 1px solid transparent; background: transparent; color: inherit; }
+  td input:hover { border-color: var(--border); }
+  td input:focus { outline: none; border-color: var(--accent); background: var(--surface-0); }
+  td.num input { text-align: right; }
+  td input.sym { min-width: 80px; }
+  td input.cur { min-width: 0; width: 56px; text-transform: uppercase; }
+  td input:disabled { color: var(--text-muted); }
+  .subline { font-size: 12px; line-height: 1.3; }
+  .cur-tag { color: var(--text-muted); font-size: 11px; }
+  th .unit { display: block; font-weight: 400; font-size: 11px; color: var(--text-muted); }
+  td input::placeholder { color: var(--text-muted); }
+  .fx { display: inline-flex; gap: 12px; align-items: center; color: var(--text-secondary); font-size: 13px; }
+  .fx label { display: inline-flex; gap: 4px; align-items: center; }
+  .fx input { font: inherit; width: 84px; padding: 4px 6px; text-align: right; border-radius: 5px;
+              border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary);
+              font-variant-numeric: tabular-nums; }
+  td input.nm { min-width: 140px; }
+  .gain { color: var(--gain); } .loss { color: var(--loss); }
+  .muted { color: var(--text-muted); font-size: 12px; }
+  #status { color: var(--text-secondary); font-size: 13px; }
+  #status.err { color: var(--loss); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; }
+  .tile .lbl { color: var(--text-secondary); font-size: 12px; }
+  .tile .val { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; }
+  @media (max-width: 520px) { .charts { grid-template-columns: 1fr; } }
+  .chartbox { position: relative; height: 300px; }
+  select { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border);
+           background: var(--surface-1); color: var(--text-primary); }
+  details summary { cursor: pointer; color: var(--text-secondary); }
+
+  /* ---- 財務ポップアップ ---- */
+  button.info-btn { padding: 3px 10px; font-size: 12px; }
+  dialog#fin { width: min(1040px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0;
+               border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1);
+               color: var(--text-primary); }
+  dialog#fin::backdrop { background: rgb(0 0 0 / .45); }
+  .fin-head { position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; align-items: flex-start;
+              padding: 16px 20px; background: var(--surface-1); border-bottom: 1px solid var(--border); }
+  .fin-head h2 { margin: 0; font-size: 18px; }
+  .fin-head .meta { color: var(--text-secondary); font-size: 12px; }
+  .fin-body { padding: 16px 20px 24px; }
+  .fin-body h3 { font-size: 14px; margin: 20px 0 8px; color: var(--text-secondary); }
+  .fin-body h3:first-child { margin-top: 0; }
+  .fin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  .metric { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+  .metric .lbl { font-size: 12px; color: var(--text-secondary); display: flex; gap: 4px; align-items: center; }
+  .metric .lbl .q { cursor: help; color: var(--text-muted); font-size: 11px; border: 1px solid var(--border);
+                    border-radius: 50%; width: 15px; height: 15px; display: inline-grid; place-items: center; }
+  .metric .v { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .metric .s { font-size: 11px; color: var(--text-muted); }
+  .fin-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-top: 4px; }
+  @media (max-width: 520px) { .fin-cols { grid-template-columns: 1fr; } }
+  .fin-chart { position: relative; height: 240px; }
+  .range { position: relative; height: 8px; border-radius: 4px; background: var(--grid); margin: 26px 4px 30px; }
+  .range .mk { position: absolute; top: -5px; width: 2px; height: 18px; transform: translateX(-1px); }
+  .range .mk span { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 11px; }
+  .range .mk.now { background: var(--text-primary); } .range .mk.now span { top: -18px; }
+  .range .mk.cost { background: var(--series-2); } .range .mk.cost span { top: 18px; color: var(--text-secondary); }
+  .range-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: -18px; }
+  .fin-note { font-size: 12px; color: var(--text-muted); margin-top: 20px; }
+  .fin-warn { color: var(--loss); font-size: 13px; margin-bottom: 8px; }
+  .fin-summary { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-top: 8px; }
+  #fin .loading { padding: 48px; text-align: center; color: var(--text-secondary); }
+
+  /* ---- 設定ダイアログ ---- */
+  dialog.settings { width: min(560px, calc(100vw - 32px)); padding: 20px 24px; border: 1px solid var(--border);
+                    border-radius: 12px; background: var(--surface-1); color: var(--text-primary); }
+  dialog.settings::backdrop { background: rgb(0 0 0 / .45); }
+  dialog.settings h2 { margin: 0 0 6px; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin: 16px 0; }
+  .field > span { font-weight: 600; font-size: 13px; }
+  .field input { font: inherit; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border);
+                 background: var(--surface-0); color: var(--text-primary); }
+  .field small { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+  .field a { color: var(--accent); }
+  .settings-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .settings-actions .spacer { flex: 1; }
+</style>
+</head>
+<body>
+<main>
+  <h1>株ポートフォリオ</h1>
+  <p class="sub">セルを編集すると自動でデータベースに反映されます。日本株は銘柄コード4桁（例: 7203）、米国株はティッカー（例: AAPL）を入力。
+    米国株は取得単価をドル、取得時レートを円で入力します。銘柄ごとの損得は円（為替損益込み）とドルの両方、合計は円で表示します。</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="lbl">総評価額</div><div class="val" id="t-value">-</div></div>
+    <div class="tile"><div class="lbl">総取得額</div><div class="val" id="t-cost">-</div></div>
+    <div class="tile"><div class="lbl">総損得</div><div class="val" id="t-pl">-</div></div>
+    <div class="tile"><div class="lbl">年間配当合計</div><div class="val" id="t-div">-</div></div>
+  </div>
+
+  <section class="card">
+    <div class="toolbar">
+      <button id="btn-add">＋ 行を追加</button>
+      <button id="btn-refresh">現在値を取得</button>
+      <button id="btn-save" class="primary">保存（本日分）</button>
+      <button id="btn-settings" title="財務データの取得設定">設定</button>
+      <span id="fx" class="fx"></span>
+      <span class="spacer"></span>
+      <span id="status"></span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th></th><th>銘柄コード</th><th>銘柄名</th><th>通貨</th>
+            <th class="num">取得単価</th><th class="num" title="外貨建て銘柄を買ったときの為替レート。空欄なら現在のレートで計算">取得時レート</th>
+            <th class="num">所持数</th><th class="num">現在株価</th>
+            <th class="num">評価額(円)</th>
+            <th class="num">損得額<span class="unit">円 / 外貨建ては下段に外貨</span></th>
+            <th class="num">損得率<span class="unit">円 / 外貨建ては下段に外貨</span></th>
+            <th class="num">1株配当(年)</th><th class="num">配当額(年・円)</th><th>株価更新</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+        <tfoot>
+          <tr>
+            <td colspan="8">合計（円）</td>
+            <td class="num" id="f-value"></td><td class="num" id="f-pl"></td><td class="num" id="f-rate"></td>
+            <td></td><td class="num" id="f-div"></td><td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar">
+      <h2 style="margin:0">推移</h2>
+      <span class="spacer"></span>
+      <label>期間
+        <select id="range">
+          <option value="30">1か月</option><option value="90">3か月</option>
+          <option value="365">1年</option><option value="0" selected>全期間</option>
+        </select>
+      </label>
+    </div>
+    <div class="charts">
+      <div><h2>総評価額と総取得額</h2><div class="chartbox"><canvas id="c-total"></canvas></div></div>
+      <div><h2>総損得</h2><div class="chartbox"><canvas id="c-pl"></canvas></div></div>
+      <div><h2>銘柄別 評価額</h2><div class="chartbox"><canvas id="c-items"></canvas></div></div>
+      <div><h2>銘柄別 損得額</h2><div class="chartbox"><canvas id="c-items-pl"></canvas></div></div>
+    </div>
+    <details style="margin-top:16px">
+      <summary>保存履歴（表）</summary>
+      <div class="tablewrap" style="margin-top:8px">
+        <table>
+          <thead><tr><th>日付</th><th class="num">総評価額</th><th class="num">総取得額</th>
+            <th class="num">総損得</th><th class="num">損得率</th><th>為替レート</th><th>保存日時</th><th></th></tr></thead>
+          <tbody id="hist"></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+</main>
+
+<dialog id="settings" class="settings">
+  <form method="dialog" id="settings-form">
+    <h2>設定（過去5年分の決算データ）</h2>
+    <p class="muted">指標や株価は設定なしで Yahoo Finance から取得します。ここを設定すると、年次決算が過去5年分になります。
+      未設定の間は Yahoo Finance の4年分を表示します。</p>
+
+    <label class="field">
+      <span>米国株: SEC EDGAR に申告する連絡先（名前とメールアドレス）</span>
+      <input id="set-sec" placeholder="例: Taro Yamada taro@example.com" autocomplete="off">
+      <small>SEC のルールで、データ取得時に送る User-Agent に連絡先を含める必要があります。この内容は SEC への問い合わせ時にだけ送信されます。</small>
+    </label>
+
+    <label class="field">
+      <span>日本株: EDINET API キー</span>
+      <input id="set-edinet" type="password" autocomplete="off">
+      <small>金融庁 EDINET の API 利用登録（無料）で発行されるキー。
+        登録: <a href="https://api.edinet-fsa.go.jp/api/auth/index.aspx?mode=1" target="_blank" rel="noopener">EDINET API 利用登録</a>
+        <span id="set-edinet-state"></span></small>
+    </label>
+
+    <div class="settings-actions">
+      <span id="settings-status" class="muted"></span>
+      <span class="spacer"></span>
+      <button value="cancel" formnovalidate>キャンセル</button>
+      <button id="settings-save" class="primary" value="default">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="fin">
+  <div class="fin-head">
+    <div style="flex:1">
+      <h2 id="fin-title"></h2>
+      <div class="meta" id="fin-meta"></div>
+    </div>
+    <button id="fin-refresh" title="Yahoo Finance から再取得">再取得</button>
+    <button id="fin-close">閉じる</button>
+  </div>
+  <div class="fin-body" id="fin-body"></div>
+</dialog>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const yen = (v, d = 0) => v == null ? "-" :
+  v.toLocaleString("ja-JP", { minimumFractionDigits: d, maximumFractionDigits: d });
+const signed = (v, d = 0) => v == null ? "-" : (v > 0 ? "+" : "") + yen(v, d);
+const cls = (v) => v == null || v === 0 ? "" : v > 0 ? "gain" : "loss";
+
+let holdings = [];
+let rates = {};
+let snapshots = [];
+const setData = (d) => { holdings = d.holdings; rates = d.rates; renderRows(); renderFx(); };
+const charts = {};
+
+function status(msg, err = false) {
+  const el = $("#status"); el.textContent = msg; el.className = err ? "err" : "";
+}
+
+async function api(method, url, body) {
+  const res = await fetch(url, {
+    method, headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 204) return null;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+// ---------- 銘柄テーブル ----------
+const FIELDS = [
+  { key: "symbol", cls: "sym" }, { key: "name", cls: "nm" }, { key: "currency", cls: "cur" },
+  { key: "avg_cost", num: true }, { key: "cost_fx_rate", num: true, fx: true },
+  { key: "shares", num: true }, { key: "current_price", num: true },
+];
+
+function renderRows() {
+  const tb = $("#rows"); tb.innerHTML = "";
+  for (const h of holdings) {
+    const tr = document.createElement("tr");
+    tr.dataset.id = h.id;
+    const tdInfo = document.createElement("td");
+    const btnInfo = document.createElement("button");
+    btnInfo.className = "info-btn"; btnInfo.textContent = "財務";
+    btnInfo.title = "財務状況を表示"; btnInfo.disabled = !h.symbol;
+    btnInfo.addEventListener("click", () => openFundamentals(h));
+    tdInfo.appendChild(btnInfo); tr.appendChild(tdInfo);
+    for (const f of FIELDS) {
+      const td = document.createElement("td");
+      if (f.num) td.className = "num";
+      const inp = document.createElement("input");
+      inp.value = h[f.key] ?? ""; inp.dataset.key = f.key;
+      if (f.cls) inp.className = f.cls;
+      if (f.num) inp.inputMode = "decimal";
+      if (f.fx) {
+        if (h.currency === "JPY") { inp.disabled = true; inp.value = ""; inp.placeholder = "-"; }
+        else {
+          inp.placeholder = h.fx_rate ? `未入力(現在 ${yen(h.fx_rate, 2)})` : "未入力";
+          inp.title = "取得時のドル円レート。未入力の間は現在のレートで円換算します";
+          inp.style.minWidth = "130px";
+        }
+      }
+      inp.addEventListener("change", () => updateField(h.id, f.key, inp.value));
+      td.appendChild(inp); tr.appendChild(td);
+    }
+    tr.insertAdjacentHTML("beforeend", `
+      <td class="num">${yen(h.value)}</td>
+      <td class="num">${plCell(h.pl, 0, "円", h.pl_native, 2, h.currency)}</td>
+      <td class="num">${plCell(h.pl_rate, 2, "%", h.pl_native_rate, 2, h.currency, "%")}</td>`);
+    const tdDiv = document.createElement("td"); tdDiv.className = "num";
+    const inpDiv = document.createElement("input");
+    inpDiv.value = h.dividend_per_share ?? 0; inpDiv.inputMode = "decimal";
+    inpDiv.addEventListener("change", () => updateField(h.id, "dividend_per_share", inpDiv.value));
+    tdDiv.appendChild(inpDiv); tr.appendChild(tdDiv);
+    tr.insertAdjacentHTML("beforeend", `
+      <td class="num">${yen(h.dividend_total, 1)}</td>
+      <td class="muted">${h.price_updated_at ?? ""}</td>
+      <td><button class="icon" title="行を削除">✕</button></td>`);
+    tr.querySelector("button.icon").addEventListener("click", () => deleteRow(h));
+    tb.appendChild(tr);
+  }
+  renderTotals();
+}
+
+// 損得セル: 円（上段）。外貨建て銘柄は外貨での値（下段）も表示
+function plCell(jpy, d, unit, native, nd, currency, nunit = "") {
+  const top = jpy == null ? "-" : `<span class="${cls(jpy)}">${signed(jpy, d)}${unit === "%" ? "%" : ""}</span>`;
+  if (currency === "JPY" || native == null) return top;
+  const sub = `${signed(native, nd)}${nunit}`;
+  return `${top}<div class="subline ${cls(native)}">${sub} <span class="cur-tag">${currency}</span></div>`;
+}
+
+function renderTotals() {
+  const priced = holdings.filter((h) => h.value != null && h.cost != null);
+  const value = priced.reduce((a, h) => a + h.value, 0);
+  const cost = holdings.reduce((a, h) => a + (h.cost ?? 0), 0);
+  const pricedCost = priced.reduce((a, h) => a + h.cost, 0);
+  const pl = value - pricedCost;
+  const div = holdings.reduce((a, h) => a + (h.dividend_total ?? 0), 0);
+  $("#f-value").textContent = yen(value);
+  $("#f-pl").textContent = signed(pl); $("#f-pl").className = "num " + cls(pl);
+  $("#f-rate").textContent = pricedCost ? signed(pl / pricedCost * 100, 2) + "%" : "-";
+  $("#f-rate").className = "num " + cls(pl);
+  $("#f-div").textContent = yen(div, 1);
+  $("#t-value").textContent = yen(value);
+  $("#t-cost").textContent = yen(cost);
+  $("#t-pl").textContent = signed(pl); $("#t-pl").className = "val " + cls(pl);
+  $("#t-div").textContent = yen(div);
+}
+
+async function loadHoldings() { setData(await api("GET", "/api/holdings")); }
+
+async function updateField(id, key, value) {
+  try {
+    setData(await api("PUT", `/api/holdings/${id}`, { [key]: value }));
+    status("更新しました");
+  } catch (e) { status(e.message, true); renderRows(); }
+}
+
+// 為替レート（外貨建て銘柄がある通貨だけ表示。手入力で上書き可）
+function renderFx() {
+  const box = $("#fx"); box.innerHTML = "";
+  const used = [...new Set(holdings.map((h) => h.currency))].filter((c) => c !== "JPY").sort();
+  for (const c of used) {
+    const r = rates[c];
+    const label = document.createElement("label");
+    label.title = r?.updated_at ? `更新: ${r.updated_at}` : "未取得";
+    label.append(`${c}/JPY`);
+    const inp = document.createElement("input");
+    inp.inputMode = "decimal"; inp.value = r ? r.rate.toFixed(2) : ""; inp.placeholder = "未取得";
+    inp.addEventListener("change", async () => {
+      try { setData(await api("PUT", `/api/fx/${c}`, { rate: inp.value })); status(`${c}/JPY を更新しました`); }
+      catch (e) { status(e.message, true); renderFx(); }
+    });
+    label.appendChild(inp); box.appendChild(label);
+  }
+}
+
+async function deleteRow(h) {
+  if (!confirm(`「${h.symbol || "(空行)"} ${h.name}」を削除しますか？`)) return;
+  await api("DELETE", `/api/holdings/${h.id}`);
+  await loadHoldings();
+}
+
+$("#btn-add").addEventListener("click", async () => {
+  setData(await api("POST", "/api/holdings", { symbol: "" }));
+  $("#rows tr:last-child input").focus();
+});
+
+$("#btn-refresh").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget; btn.disabled = true; status("株価を取得中…");
+  try {
+    const res = await api("POST", "/api/prices/refresh");
+    setData(res);
+    if (res.errors.length) status("一部取得失敗: " + res.errors.join(" / "), true);
+    else status("株価を更新しました");
+  } catch (e) { status(e.message, true); }
+  btn.disabled = false;
+});
+
+$("#btn-save").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget; btn.disabled = true;
+  try {
+    const r = await api("POST", "/api/snapshots");
+    status(`${r.date} のデータを保存しました（同日分は上書き）`);
+    await loadSnapshots();
+  } catch (e) { status(e.message, true); }
+  btn.disabled = false;
+});
+
+// ---------- 推移グラフ ----------
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const SERIES = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => `--series-${i}`);
+// 銘柄の色は銘柄コードに固定（フィルタで色が入れ替わらないように）
+const symbolColor = {};
+
+async function loadSnapshots() { snapshots = await api("GET", "/api/snapshots"); renderCharts(); renderHistory(); }
+
+function filtered() {
+  const days = +$("#range").value;
+  if (!days) return snapshots;
+  const from = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+  return snapshots.filter((s) => s.date >= from);
+}
+
+function baseOptions(extra = {}) {
+  const text = css("--text-secondary"), grid = css("--grid");
+  return {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { labels: { color: text, usePointStyle: true, boxWidth: 8 } },
+      tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${signedIfPl(c)}` } },
+    },
+    scales: {
+      x: { ticks: { color: text, maxRotation: 0, autoSkip: true }, grid: { display: false } },
+      y: { ticks: { color: text, precision: 0, callback: (v) => yen(v) }, grid: { color: grid } },
+    },
+    ...extra,
+  };
+}
+const signedIfPl = (c) => (c.chart.canvas.id.includes("pl") ? signed(c.raw) : yen(c.raw)) + " 円";
+
+function line(label, data, color) {
+  return { label, data, borderColor: color, backgroundColor: color, borderWidth: 2,
+           pointRadius: 3, pointHoverRadius: 5, tension: 0, spanGaps: true };
+}
+
+function draw(id, config) {
+  charts[id]?.destroy();
+  charts[id] = new Chart(document.getElementById(id), config);
+}
+
+function renderCharts() {
+  const snaps = filtered();
+  const labels = snaps.map((s) => s.date);
+
+  draw("c-total", { type: "line", data: { labels, datasets: [
+    line("総評価額", snaps.map((s) => s.total_value), css("--series-1")),
+    line("総取得額", snaps.map((s) => s.total_cost), css("--series-2")),
+  ] }, options: baseOptions() });
+
+  const gain = css("--gain"), loss = css("--loss");
+  draw("c-pl", { type: "bar", data: { labels, datasets: [{
+    label: "総損得", data: snaps.map((s) => s.total_pl),
+    backgroundColor: snaps.map((s) => (s.total_pl >= 0 ? gain : loss)),
+    borderRadius: 4, maxBarThickness: 28,
+  }] }, options: baseOptions({ plugins: { legend: { display: false },
+    tooltip: { callbacks: { label: (c) => `総損得: ${signed(c.raw)} 円` } } } }) });
+
+  // 銘柄別
+  const symbols = [...new Set(snapshots.flatMap((s) => s.items.map((i) => i.symbol)))];
+  symbols.forEach((sym) => {
+    if (!(sym in symbolColor)) symbolColor[sym] = Object.keys(symbolColor).length;
+  });
+  const colorOf = (sym) => {
+    const idx = symbolColor[sym];
+    return idx < SERIES.length ? css(SERIES[idx]) : css("--text-muted");
+  };
+  const nameOf = (sym) => {
+    for (const s of snapshots) { const it = s.items.find((i) => i.symbol === sym); if (it?.name) return `${sym} ${it.name}`; }
+    return sym;
+  };
+  const per = (key) => symbols.map((sym) => line(nameOf(sym),
+    snaps.map((s) => s.items.find((i) => i.symbol === sym)?.[key] ?? null), colorOf(sym)));
+  draw("c-items", { type: "line", data: { labels, datasets: per("value") }, options: baseOptions() });
+  draw("c-items-pl", { type: "line", data: { labels, datasets: per("pl") }, options: baseOptions() });
+}
+
+function renderHistory() {
+  const tb = $("#hist"); tb.innerHTML = "";
+  for (const s of [...snapshots].reverse()) {
+    const rate = s.total_cost ? s.total_pl / s.total_cost * 100 : null;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${s.date}</td><td class="num">${yen(s.total_value)}</td>
+      <td class="num">${yen(s.total_cost)}</td><td class="num ${cls(s.total_pl)}">${signed(s.total_pl)}</td>
+      <td class="num ${cls(rate)}">${rate == null ? "-" : signed(rate, 2) + "%"}</td>
+      <td class="muted">${Object.entries(s.fx_rates || {}).map(([c, r]) => `${c} ${yen(r, 2)}`).join(", ")}</td>
+      <td class="muted">${s.saved_at}</td><td><button class="icon" title="この日のデータを削除">✕</button></td>`;
+    tr.querySelector("button").addEventListener("click", async () => {
+      if (!confirm(`${s.date} の保存データを削除しますか？`)) return;
+      await api("DELETE", `/api/snapshots/${s.date}`); loadSnapshots();
+    });
+    tb.appendChild(tr);
+  }
+}
+
+$("#range").addEventListener("change", renderCharts);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderCharts);
+
+// ---------- 設定 ----------
+async function openSettings() {
+  const s = await api("GET", "/api/settings");
+  $("#set-sec").value = s.sec_contact;
+  $("#set-edinet").value = "";
+  $("#set-edinet").placeholder = s.edinet_api_key_set ? `設定済み（${s.edinet_api_key_masked}）。変更する場合のみ入力` : "未設定";
+  $("#set-edinet-state").textContent = s.edinet_api_key_set ? "・設定済み" : "・未設定";
+  $("#settings-status").textContent = "";
+  $("#settings").showModal();
+}
+$("#btn-settings").addEventListener("click", openSettings);
+$("#settings-save").addEventListener("click", async (ev) => {
+  ev.preventDefault();
+  const body = { sec_contact: $("#set-sec").value };
+  if ($("#set-edinet").value.trim()) body.edinet_api_key = $("#set-edinet").value.trim();
+  try {
+    await api("PUT", "/api/settings", body);
+    $("#settings").close();
+    status("設定を保存しました（財務情報は次回表示時に取り直します）");
+  } catch (e) { $("#settings-status").textContent = e.message; }
+});
+
+// ---------- 財務ポップアップ ----------
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const CUR_UNIT = { JPY: "円", USD: "ドル" };
+const unitOf = (cur) => CUR_UNIT[cur] ?? (cur ? ` ${cur}` : "");
+// 大きな金額を 兆 / 億 / 万 で表記
+function money(v, cur) {
+  if (v == null) return "-";
+  const a = Math.abs(v), u = unitOf(cur);
+  if (a >= 1e12) return (v / 1e12).toLocaleString("ja-JP", { maximumFractionDigits: 2 }) + "兆" + u;
+  if (a >= 1e8) return (v / 1e8).toLocaleString("ja-JP", { maximumFractionDigits: a >= 1e10 ? 0 : 1 }) + "億" + u;
+  if (a >= 1e4) return (v / 1e4).toLocaleString("ja-JP", { maximumFractionDigits: 1 }) + "万" + u;
+  return upTo(v, 2) + u;
+}
+// 小数は必要な桁だけ（最大 d 桁）
+const upTo = (v, d) => v.toLocaleString("ja-JP", { maximumFractionDigits: d });
+const perShare = (v, cur) => v == null ? "-" : upTo(v, 2) + unitOf(cur);
+const pct = (v, d = 1) => v == null ? "-" : yen(v, d) + "%";
+const spct = (v, d = 1) => v == null ? "-" : signed(v, d) + "%";
+const times = (v, d = 1) => v == null ? "-" : yen(v, d) + "倍";
+
+// 指標の説明（ラベル横の ? にマウスを乗せると表示）
+const HELP = {
+  per: "株価収益率 = 株価 ÷ 1株利益。利益に対して株価が何倍か。一般に低いほど割安とされるが、業種平均や成長性と合わせて見る",
+  forward_per: "予想PER = 株価 ÷ 予想1株利益（アナリスト予想ベース）",
+  pbr: "株価純資産倍率 = 株価 ÷ 1株純資産。1倍未満は解散価値を下回る水準",
+  ev_ebitda: "企業価値 ÷ EBITDA。負債も含めた買収コストが本業の稼ぐ力の何年分か",
+  yield: "配当利回り = 年間配当 ÷ 現在株価",
+  yoc: "取得単価ベースの配当利回り = 年間配当 ÷ あなたの取得単価",
+  payout: "配当性向 = 配当 ÷ 純利益。高すぎると減配余地、低いと増配余地の目安",
+  roe: "自己資本利益率 = 純利益 ÷ 自己資本。株主のお金で効率よく稼げているか",
+  roa: "総資産利益率 = 純利益 ÷ 総資産",
+  op_margin: "営業利益率 = 営業利益 ÷ 売上高。本業の稼ぐ力",
+  profit_margin: "純利益率 = 純利益 ÷ 売上高",
+  rev_growth: "売上高成長率（直近四半期の前年同期比）",
+  earn_growth: "利益成長率（直近四半期の前年同期比）",
+  equity_ratio: "自己資本比率 = 自己資本 ÷ 総資産（直近の年次決算）。高いほど財務が安定",
+  de: "D/Eレシオ = 有利子負債 ÷ 自己資本。100% を超えると負債が自己資本より多い。金融・リース事業を持つ企業は高く出やすい",
+  current: "流動比率 = 流動資産 ÷ 流動負債。1倍以上なら短期の支払い能力に余裕",
+  fcf: "フリーキャッシュフロー = 営業CF − 設備投資。配当や自社株買い、借入返済に回せるお金",
+  beta: "市場全体に対する株価の動きやすさ。1より大きいと市場より値動きが大きい",
+  target: "アナリスト目標株価の平均と、現在株価からの乖離率",
+};
+const metric = (label, value, sub = "", help = "") => `
+  <div class="metric"><div class="lbl">${label}${help ? `<span class="q" title="${esc(HELP[help])}">?</span>` : ""}</div>
+  <div class="v">${value}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`;
+
+let finHolding = null;
+
+async function openFundamentals(h, refresh = false) {
+  finHolding = h;
+  const dlg = $("#fin");
+  $("#fin-title").textContent = `${h.symbol} ${h.name || ""}`;
+  $("#fin-meta").textContent = "";
+  $("#fin-body").innerHTML = `<div class="loading">財務情報を取得中…<br>
+    <span class="muted">日本株の初回は EDINET で有価証券報告書を探すため、1分ほどかかることがあります</span></div>`;
+  if (!dlg.open) dlg.showModal();
+  try {
+    const d = await api("GET", `/api/fundamentals/${encodeURIComponent(h.symbol)}${refresh ? "?refresh=1" : ""}`);
+    if (finHolding === h) renderFundamentals(d, h);
+  } catch (e) {
+    $("#fin-body").innerHTML = `<div class="loading fin-warn">${esc(e.message)}</div>`;
+  }
+}
+$("#fin-close").addEventListener("click", () => $("#fin").close());
+$("#fin-refresh").addEventListener("click", () => finHolding && openFundamentals(finHolding, true));
+$("#fin").addEventListener("click", (e) => { if (e.target.id === "fin") e.target.close(); }); // 背景クリックで閉じる
+
+function renderFundamentals(d, h) {
+  const cur = d.currency, fcur = d.financial_currency;
+  const v = d.valuation, dv = d.dividend, p = d.profitability, s = d.safety, an = d.analyst;
+  const last = d.annual.at(-1) || {};
+  $("#fin-title").textContent = `${d.symbol} ${d.name}`;
+  $("#fin-meta").textContent = [d.sector, d.industry, d.market_cap != null && `時価総額 ${money(d.market_cap, cur)}`,
+    d.employees != null && `従業員 ${yen(d.employees)}人`, `取得 ${d.fetched_at}${d.cached ? "（キャッシュ）" : ""}`]
+    .filter(Boolean).join(" ・ ");
+
+  // 52週レンジ（帯）上に現在値（上ラベル）と取得単価（下ラベル）を表示
+  let range = "";
+  if (d.high_52w != null && d.low_52w != null && d.high_52w > d.low_52w) {
+    const lo = Math.min(d.low_52w, h.avg_cost || d.low_52w), hi = Math.max(d.high_52w, h.avg_cost || d.high_52w);
+    const frac = (x) => (x - lo) / (hi - lo);
+    const pos = (x) => `${frac(x) * 100}%`;
+    // 端に近いマーカーのラベルは内側に寄せる
+    const align = (x) => (frac(x) < 0.12 ? "left:0;transform:none" : frac(x) > 0.88 ? "left:auto;right:0;transform:none" : "");
+    const mk = (cls, x, text) => `<div class="mk ${cls}" style="left:${pos(x)}"><span style="${align(x)}">${text}</span></div>`;
+    const inRange = d.price != null && d.high_52w ? (d.price - d.low_52w) / (d.high_52w - d.low_52w) * 100 : null;
+    range = `<h3>52週の株価レンジ</h3>
+      <div class="range"><div style="position:absolute;top:0;bottom:0;border-radius:4px;background:var(--series-1);opacity:.45;left:${pos(d.low_52w)};width:calc(${pos(d.high_52w)} - ${pos(d.low_52w)})"></div>
+        ${d.price != null ? mk("now", d.price, `現在 ${perShare(d.price, cur)}`) : ""}
+        ${h.avg_cost ? mk("cost", h.avg_cost, `取得単価 ${perShare(h.avg_cost, cur)}`) : ""}
+      </div>
+      <div class="muted">帯 = 52週の安値 ${perShare(d.low_52w, cur)} 〜 高値 ${perShare(d.high_52w, cur)}${inRange != null ? `（現在値はレンジの下から ${yen(inRange)}% の位置）` : ""}</div>`;
+  }
+
+  const yoc = dv.rate != null && h.avg_cost ? dv.rate / h.avg_cost * 100 : null;
+  // 年次決算の列（データが1期も無い列は出さない）
+  const has = (k) => d.annual.some((y) => y[k] != null);
+  const isIfrsLike = d.annual_source.startsWith("EDINET") && !has("operating_income");
+  const ANNUAL_COLS = [
+    ["売上高", "revenue", (x) => money(x, fcur)],
+    ["営業利益", "operating_income", (x) => money(x, fcur)],
+    ["営業利益率", "operating_margin", (x) => pct(x)],
+    [isIfrsLike ? "経常利益/税引前利益" : "経常利益", "ordinary_income", (x) => money(x, fcur)],
+    ["純利益", "net_income", (x) => money(x, fcur)],
+    ["EPS", "eps", (x) => perShare(x, fcur)],
+    ["ROE", "roe", (x) => pct(x)],
+    ["自己資本比率", "equity_ratio", (x) => pct(x)],
+    ["営業CF", "operating_cf", (x) => money(x, fcur)],
+    ["フリーCF", "free_cf", (x) => `<span class="${cls(x)}">${money(x, fcur)}</span>`],
+    ["1株配当", "dividend_per_share", (x) => perShare(x, cur)],
+    ["配当性向", "payout_ratio", (x) => pct(x)],
+  ].filter(([, k]) => has(k));
+  const annualHead = `<th>決算期</th>` + ANNUAL_COLS.map(([lb]) => `<th class="num">${lb}</th>`).join("");
+  const annualRows = d.annual.map((y) => `<tr><td>${y.period}</td>` +
+    ANNUAL_COLS.map(([, k, f]) => `<td class="num">${y[k] == null ? "-" : f(y[k])}</td>`).join("") + `</tr>`).join("");
+  const sourceNote = `出典: ${esc(d.annual_source)}${d.annual_note ? `<br>${esc(d.annual_note)}` : ""}`;
+
+  $("#fin-body").innerHTML = `
+    ${d.warning ? `<div class="fin-warn">${esc(d.warning)}</div>` : ""}
+    <h3>割安度</h3>
+    <div class="fin-grid">
+      ${metric("PER（実績）", times(v.per), `EPS ${perShare(v.eps, cur)}`, "per")}
+      ${metric("PER（予想）", times(v.forward_per), `予想EPS ${perShare(v.forward_eps, cur)}`, "forward_per")}
+      ${metric("PBR", times(v.pbr, 2), `BPS ${perShare(v.bps, cur)}`, "pbr")}
+      ${metric("EV/EBITDA", times(v.ev_ebitda), "", "ev_ebitda")}
+      ${metric("目標株価（平均）", perShare(an.target_mean, cur),
+        an.upside != null ? `現在値から ${spct(an.upside)}${an.analysts ? `・${yen(an.analysts)}人` : ""}` : "", "target")}
+      ${metric("アナリスト評価", esc(an.recommendation ?? "-"),
+        an.target_low != null ? `目標 ${perShare(an.target_low, cur)} 〜 ${perShare(an.target_high, cur)}` : "")}
+    </div>
+    <h3>配当</h3>
+    <div class="fin-grid">
+      ${metric("年間配当（1株）", perShare(dv.rate, cur), dv.ex_date ? `次の権利落ち日 ${dv.ex_date}` : "")}
+      ${metric("配当利回り", pct(dv.yield, 2), "現在株価ベース", "yield")}
+      ${metric("取得単価ベース利回り", pct(yoc, 2), h.avg_cost ? `取得単価 ${perShare(h.avg_cost, cur)}` : "取得単価未入力", "yoc")}
+      ${metric("配当性向", pct(dv.payout_ratio), "", "payout")}
+    </div>
+    <h3>収益性・成長性</h3>
+    <div class="fin-grid">
+      ${metric("ROE", pct(p.roe), "", "roe")}
+      ${metric("ROA", pct(p.roa), "", "roa")}
+      ${metric("営業利益率", pct(p.operating_margin), "", "op_margin")}
+      ${metric("純利益率", pct(p.profit_margin), "", "profit_margin")}
+      ${metric("売上成長率", `<span class="${cls(p.revenue_growth)}">${spct(p.revenue_growth)}</span>`, "前年同期比", "rev_growth")}
+      ${metric("利益成長率", `<span class="${cls(p.earnings_growth)}">${spct(p.earnings_growth)}</span>`, "前年同期比", "earn_growth")}
+    </div>
+    <h3>財務の安全性</h3>
+    <div class="fin-grid">
+      ${metric("自己資本比率", pct(last.equity_ratio), last.period ? `${last.period} 期` : "", "equity_ratio")}
+      ${metric("D/Eレシオ", pct(s.debt_to_equity, 0), "", "de")}
+      ${metric("流動比率", times(s.current_ratio, 2), "", "current")}
+      ${metric("現金・預金", money(s.total_cash, fcur))}
+      ${metric("有利子負債", money(s.total_debt, fcur))}
+      ${metric("フリーCF", `<span class="${cls(s.free_cashflow)}">${money(s.free_cashflow, fcur)}</span>`, "直近12か月", "fcf")}
+      ${metric("ベータ", d.beta == null ? "-" : yen(d.beta, 2), "", "beta")}
+    </div>
+    ${range}
+    <div class="fin-cols">
+      <div><h3>売上高の推移（年次）</h3><div class="fin-chart"><canvas id="fin-c-rev"></canvas></div></div>
+      <div><h3>利益の推移（年次）</h3><div class="fin-chart"><canvas id="fin-c-profit"></canvas></div></div>
+      <div><h3>1株配当の推移（暦年）</h3><div class="fin-chart"><canvas id="fin-c-div"></canvas></div></div>
+    </div>
+    ${d.annual.length ? `<h3>年次決算（${d.annual.length}期分）</h3><div class="tablewrap"><table>
+      <thead><tr>${annualHead}</tr></thead>
+      <tbody>${annualRows}</tbody></table></div>` : ""}
+    <div class="muted" style="margin-top:6px">${sourceNote}</div>
+    ${d.summary ? `<details style="margin-top:16px"><summary>事業内容（英語）</summary><p class="fin-summary">${esc(d.summary)}</p></details>` : ""}
+    <p class="fin-note">データ出典: 指標・株価は Yahoo Finance（yfinance 経由）、年次決算は上記の出典（24時間キャッシュ）。数値は遅延・欠損・誤りを含む場合があります。
+      指標は判断材料の一つであり、売買を推奨するものではありません。最終的な投資判断はご自身で行ってください。</p>`;
+  drawFinCharts(d);
+}
+
+function drawFinCharts(d) {
+  const fcur = d.financial_currency;
+  const labels = d.annual.map((y) => y.period);
+  const bar = (label, data, color) => ({ label, data, backgroundColor: color, borderRadius: 4, maxBarThickness: 26 });
+  const moneyTick = (v) => money(v, fcur).replace(unitOf(fcur), "");
+  const opts = (tick, tip) => {
+    const o = baseOptions();
+    o.scales.y.ticks.callback = tick;
+    o.plugins.tooltip = { callbacks: { label: tip } };
+    return o;
+  };
+  const moneyTip = (c) => `${c.dataset.label}: ${money(c.raw, fcur)}`;
+  // 売上高は利益より桁が大きいので別グラフにする（2軸にはしない）
+  const revOpts = opts(moneyTick, moneyTip);
+  revOpts.plugins.legend = { display: false };
+  draw("fin-c-rev", { type: "bar", data: { labels, datasets: [
+    bar("売上高", d.annual.map((y) => y.revenue), css("--series-1")),
+  ] }, options: revOpts });
+  // 利益の種類ごとに色を固定。データの無い種類は出さない
+  const profitSets = [
+    ["営業利益", "operating_income", "--series-2"],
+    ["経常利益", "ordinary_income", "--series-4"],
+    ["純利益", "net_income", "--series-3"],
+  ].filter(([, k]) => d.annual.some((y) => y[k] != null))
+   .map(([lb, k, c]) => bar(lb, d.annual.map((y) => y[k]), css(c)));
+  draw("fin-c-profit", { type: "bar", data: { labels, datasets: profitSets }, options: opts(moneyTick, moneyTip) });
+
+  const hist = d.dividend.history;
+  const c1 = css("--series-1");
+  const divOpts = opts((v) => upTo(v, 2), (c) => `1株配当: ${perShare(c.raw, d.currency)}${hist[c.dataIndex].partial ? "（今年は途中まで）" : ""}`);
+  divOpts.plugins.legend = { display: false };
+  divOpts.scales.x.ticks.autoSkip = false;
+  delete divOpts.scales.y.ticks.precision; // 米国株は1ドル前後なので小数の目盛りを許可
+  draw("fin-c-div", { type: "bar", data: {
+    labels: hist.map((x) => x.year + (x.partial ? "途中" : "")),
+    datasets: [{ label: "1株配当", data: hist.map((x) => x.amount),
+      backgroundColor: hist.map((x) => (x.partial ? "transparent" : c1)), borderColor: c1, borderWidth: hist.map((x) => (x.partial ? 2 : 0)),
+      borderRadius: 4, maxBarThickness: 32 }] }, options: divOpts });
+}
+
+loadHoldings(); loadSnapshots();
+</script>
+</body>
+</html>

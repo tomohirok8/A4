@@ -1,0 +1,11 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 個人データ（保有銘柄・保存履歴・API キーなどの設定を含む）
+portfolio.db
+portfolio.db-journal
+
+# macOS
+.DS_Store
