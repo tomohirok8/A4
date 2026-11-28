@@ -83,6 +83,33 @@
            background: var(--surface-1); color: var(--text-primary); }
   details summary { cursor: pointer; color: var(--text-secondary); }
 
+  /* ---- タブ ---- */
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 0 0 20px; }
+  .tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none;
+                 padding: 8px 16px; color: var(--text-secondary); font-weight: 600; }
+  .tabs button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); }
+  [hidden] { display: none !important; }
+  .tile input { font: inherit; font-size: 20px; font-weight: 600; width: 100%; padding: 0 4px; margin-left: -4px;
+                border: 1px solid transparent; border-radius: 6px; background: transparent; color: inherit;
+                font-variant-numeric: tabular-nums; }
+  .tile input:hover { border-color: var(--border); }
+  .tile input:focus { outline: none; border-color: var(--accent); background: var(--surface-0); }
+  .tile .s { font-size: 11px; color: var(--text-muted); }
+  .check { display: inline-flex; gap: 6px; align-items: center; color: var(--text-secondary); font-size: 13px; cursor: pointer; }
+  .chart-wide { grid-column: 1 / -1; }
+  .picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow-y: auto; margin: 0 0 10px;
+            padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
+  .picker label { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; padding: 2px 8px;
+                  border: 1px solid var(--border); border-radius: 999px; cursor: pointer; color: var(--text-secondary); }
+  .picker label:has(input:checked) { color: var(--text-primary); border-color: var(--text-muted); }
+  .picker .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .picker input { margin: 0; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; padding: 5px 10px; font-size: 13px; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .yearnav { display: inline-flex; gap: 4px; align-items: center; }
+  .yearnav select { font-weight: 600; }
+
   /* ---- 財務ポップアップ ---- */
   button.info-btn { padding: 3px 10px; font-size: 12px; }
   dialog#fin { width: min(1040px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0;
@@ -138,11 +165,19 @@
   <p class="sub">セルを編集すると自動でデータベースに反映されます。日本株は銘柄コード4桁（例: 7203）、米国株はティッカー（例: AAPL）を入力。
     米国株は取得単価をドル、取得時レートを円で入力します。銘柄ごとの損得は円（為替損益込み）とドルの両方、合計は円で表示します。</p>
 
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-view="portfolio" aria-selected="true">ポートフォリオ</button>
+    <button role="tab" data-view="dividends" aria-selected="false">配当実績</button>
+  </nav>
+
+  <div id="view-portfolio">
   <div class="tiles">
     <div class="tile"><div class="lbl">総評価額</div><div class="val" id="t-value">-</div></div>
     <div class="tile"><div class="lbl">総取得額</div><div class="val" id="t-cost">-</div></div>
     <div class="tile"><div class="lbl">総損得</div><div class="val" id="t-pl">-</div></div>
     <div class="tile"><div class="lbl">年間配当合計</div><div class="val" id="t-div">-</div></div>
+    <div class="tile"><div class="lbl">買付余力（円）</div><input id="cash" inputmode="decimal" title="証券口座の買付余力を入力"></div>
+    <div class="tile"><div class="lbl">総資産</div><div class="val" id="t-total">-</div><div class="s">買付余力 ＋ 総評価額</div></div>
   </div>
 
   <section class="card">
@@ -152,6 +187,7 @@
       <button id="btn-save" class="primary">保存（本日分）</button>
       <button id="btn-settings" title="財務データの取得設定">設定</button>
       <span id="fx" class="fx"></span>
+      <label class="check"><input type="checkbox" id="hide-zero">所持数0の銘柄を隠す<span id="hidden-count" class="muted"></span></label>
       <span class="spacer"></span>
       <span id="status"></span>
     </div>
@@ -165,7 +201,10 @@
             <th class="num">評価額(円)</th>
             <th class="num">損得額<span class="unit">円 / 外貨建ては下段に外貨</span></th>
             <th class="num">損得率<span class="unit">円 / 外貨建ては下段に外貨</span></th>
-            <th class="num">1株配当(年)</th><th class="num">配当額(年・円)</th><th>株価更新</th><th></th>
+            <th class="num">1株配当(年)</th><th class="num">配当額(年・円)</th>
+            <th class="num" title="1株配当 ÷ 取得単価">配当利回り<span class="unit">取得単価</span></th>
+            <th class="num" title="1株配当 ÷ 現在株価">配当利回り<span class="unit">評価額（現在株価）</span></th>
+            <th>株価更新</th><th></th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -173,7 +212,7 @@
           <tr>
             <td colspan="8">合計（円）</td>
             <td class="num" id="f-value"></td><td class="num" id="f-pl"></td><td class="num" id="f-rate"></td>
-            <td></td><td class="num" id="f-div"></td><td colspan="2"></td>
+            <td></td><td class="num" id="f-div"></td><td class="num" id="f-yc"></td><td class="num" id="f-yv"></td><td colspan="2"></td>
           </tr>
         </tfoot>
       </table>
@@ -194,20 +233,86 @@
     <div class="charts">
       <div><h2>総評価額と総取得額</h2><div class="chartbox"><canvas id="c-total"></canvas></div></div>
       <div><h2>総損得</h2><div class="chartbox"><canvas id="c-pl"></canvas></div></div>
-      <div><h2>銘柄別 評価額</h2><div class="chartbox"><canvas id="c-items"></canvas></div></div>
-      <div><h2>銘柄別 損得額</h2><div class="chartbox"><canvas id="c-items-pl"></canvas></div></div>
+      <div class="chart-wide">
+        <div class="toolbar">
+          <h2 style="margin:0">銘柄別 株価</h2>
+          <span class="seg" id="price-mode">
+            <button data-mode="price" aria-pressed="true">株価</button>
+            <button data-mode="change" aria-pressed="false" title="期間の最初の日を 0% とした騰落率。株価の水準が違う銘柄を比べやすい">騰落率</button>
+          </span>
+          <span class="spacer"></span>
+          <button id="pick-all">すべて選択</button><button id="pick-none">選択解除</button>
+        </div>
+        <div class="picker" id="picker"></div>
+        <div class="chartbox"><canvas id="c-prices"></canvas></div>
+      </div>
     </div>
     <details style="margin-top:16px">
       <summary>保存履歴（表）</summary>
       <div class="tablewrap" style="margin-top:8px">
         <table>
           <thead><tr><th>日付</th><th class="num">総評価額</th><th class="num">総取得額</th>
-            <th class="num">総損得</th><th class="num">損得率</th><th>為替レート</th><th>保存日時</th><th></th></tr></thead>
+            <th class="num">総損得</th><th class="num">損得率</th><th class="num">買付余力</th><th>為替レート</th><th>保存日時</th><th></th></tr></thead>
           <tbody id="hist"></tbody>
         </table>
       </div>
     </details>
   </section>
+  </div>
+
+  <div id="view-dividends" hidden>
+    <div class="tiles">
+      <div class="tile"><div class="lbl"><span class="d-year"></span>年 配当（額面）</div><div class="val" id="d-gross">-</div></div>
+      <div class="tile"><div class="lbl"><span class="d-year"></span>年 配当（手取り）</div><div class="val" id="d-net">-</div></div>
+      <div class="tile"><div class="lbl">累積（額面）</div><div class="val" id="d-cum-gross">-</div><div class="s"><span class="d-year"></span>年までの合計</div></div>
+      <div class="tile"><div class="lbl">累積（手取り）</div><div class="val" id="d-cum-net">-</div><div class="s"><span class="d-year"></span>年までの合計</div></div>
+    </div>
+
+    <section class="card">
+      <div class="toolbar">
+        <span class="yearnav">
+          <button id="d-prev" title="前の年">◀</button>
+          <select id="d-year-sel"></select>
+          <button id="d-next" title="次の年">▶</button>
+        </span>
+        <button id="d-add-year">年を追加</button>
+        <button id="d-add">＋ 行を追加</button>
+        <button id="d-import" title="ポートフォリオの所持数・1株配当を、この年にまだ無い銘柄だけ追加">保有銘柄から取り込む</button>
+        <span class="spacer"></span>
+        <span id="d-status" class="muted"></span>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th>銘柄コード</th><th>銘柄名</th><th>通貨</th>
+            <th class="num">配当単価<span class="unit">1株・年間</span></th><th class="num">所持数</th>
+            <th class="num" title="外貨建て配当を受け取ったときの為替レート。空欄なら現在のレート">為替レート</th>
+            <th class="num" title="空欄なら標準税率（日本株 20.315%、外国株 28.283% = 米国10%源泉後に国内20.315%）。NISA は 0">税率 %</th>
+            <th class="num">配当額<span class="unit">額面・円</span></th><th class="num">配当額<span class="unit">手取り・円</span></th><th></th>
+          </tr></thead>
+          <tbody id="d-rows"></tbody>
+          <tfoot><tr>
+            <td colspan="7">合計（円）</td><td class="num" id="d-f-gross"></td><td class="num" id="d-f-net"></td><td></td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>年ごとの配当収入</h2>
+      <div class="charts">
+        <div><h2>年別（額面・手取り）</h2><div class="chartbox"><canvas id="d-c-year"></canvas></div></div>
+        <div><h2>累積（額面・手取り）</h2><div class="chartbox"><canvas id="d-c-cum"></canvas></div></div>
+      </div>
+      <div class="tablewrap" style="margin-top:16px">
+        <table>
+          <thead><tr><th>年</th><th class="num">銘柄数</th><th class="num">額面</th><th class="num">手取り</th>
+            <th class="num">累積（額面）</th><th class="num">累積（手取り）</th></tr></thead>
+          <tbody id="d-summary"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
 </main>
 
 <dialog id="settings" class="settings">
@@ -261,7 +366,14 @@ const cls = (v) => v == null || v === 0 ? "" : v > 0 ? "gain" : "loss";
 let holdings = [];
 let rates = {};
 let snapshots = [];
-const setData = (d) => { holdings = d.holdings; rates = d.rates; renderRows(); renderFx(); };
+let cash = 0;
+const setData = (d) => { holdings = d.holdings; rates = d.rates; cash = d.cash ?? 0; renderRows(); renderFx(); };
+
+// 画面の表示設定（このブラウザにだけ保存）
+const pref = {
+  get(k, def) { try { const v = localStorage.getItem("pf." + k); return v == null ? def : JSON.parse(v); } catch { return def; } },
+  set(k, v) { try { localStorage.setItem("pf." + k, JSON.stringify(v)); } catch { /* 保存できなくても動作は続ける */ } },
+};
 const charts = {};
 
 function status(msg, err = false) {
@@ -288,7 +400,11 @@ const FIELDS = [
 
 function renderRows() {
   const tb = $("#rows"); tb.innerHTML = "";
-  for (const h of holdings) {
+  const hideZero = $("#hide-zero").checked;
+  const shown = hideZero ? holdings.filter((h) => h.shares !== 0) : holdings;
+  const nHidden = holdings.length - shown.length;
+  $("#hidden-count").textContent = hideZero && nHidden ? `（${nHidden}件）` : "";
+  for (const h of shown) {
     const tr = document.createElement("tr");
     tr.dataset.id = h.id;
     const tdInfo = document.createElement("td");
@@ -326,6 +442,8 @@ function renderRows() {
     tdDiv.appendChild(inpDiv); tr.appendChild(tdDiv);
     tr.insertAdjacentHTML("beforeend", `
       <td class="num">${yen(h.dividend_total, 1)}</td>
+      <td class="num">${pct(h.yield_cost, 2)}</td>
+      <td class="num">${pct(h.yield_value, 2)}</td>
       <td class="muted">${h.price_updated_at ?? ""}</td>
       <td><button class="icon" title="行を削除">✕</button></td>`);
     tr.querySelector("button.icon").addEventListener("click", () => deleteRow(h));
@@ -354,6 +472,11 @@ function renderTotals() {
   $("#f-rate").textContent = pricedCost ? signed(pl / pricedCost * 100, 2) + "%" : "-";
   $("#f-rate").className = "num " + cls(pl);
   $("#f-div").textContent = yen(div, 1);
+  // 合計の配当利回り = 年間配当合計 ÷ 総取得額 / 総評価額
+  $("#f-yc").textContent = cost ? pct(div / cost * 100, 2) : "-";
+  $("#f-yv").textContent = value ? pct(div / value * 100, 2) : "-";
+  $("#t-total").textContent = yen(value + cash);
+  if (document.activeElement !== $("#cash")) $("#cash").value = cash ? yen(cash) : "";
   $("#t-value").textContent = yen(value);
   $("#t-cost").textContent = yen(cost);
   $("#t-pl").textContent = signed(pl); $("#t-pl").className = "val " + cls(pl);
@@ -387,6 +510,18 @@ function renderFx() {
     label.appendChild(inp); box.appendChild(label);
   }
 }
+
+$("#cash").addEventListener("change", async (ev) => {
+  const v = ev.target.value.replace(/[,，\s円]/g, "");
+  if (v !== "" && isNaN(+v)) { status("買付余力は数値で入力してください", true); renderTotals(); return; }
+  try { setData(await api("PUT", "/api/cash", { cash: v === "" ? 0 : +v })); status("買付余力を更新しました"); }
+  catch (e) { status(e.message, true); }
+});
+$("#cash").addEventListener("focus", (ev) => { ev.target.value = cash || ""; });
+$("#cash").addEventListener("blur", () => renderTotals());
+
+$("#hide-zero").checked = pref.get("hideZero", false);
+$("#hide-zero").addEventListener("change", (ev) => { pref.set("hideZero", ev.target.checked); renderRows(); });
 
 async function deleteRow(h) {
   if (!confirm(`「${h.symbol || "(空行)"} ${h.name}」を削除しますか？`)) return;
@@ -467,10 +602,15 @@ function renderCharts() {
   const snaps = filtered();
   const labels = snaps.map((s) => s.date);
 
-  draw("c-total", { type: "line", data: { labels, datasets: [
+  const totalSets = [
     line("総評価額", snaps.map((s) => s.total_value), css("--series-1")),
     line("総取得額", snaps.map((s) => s.total_cost), css("--series-2")),
-  ] }, options: baseOptions() });
+  ];
+  // 買付余力を保存した日だけ総資産を出す（以前の保存分は買付余力が空）
+  if (snaps.some((s) => s.cash != null)) {
+    totalSets.push(line("総資産（＋買付余力）", snaps.map((s) => (s.cash == null ? null : s.total_value + s.cash)), css("--series-3")));
+  }
+  draw("c-total", { type: "line", data: { labels, datasets: totalSets }, options: baseOptions() });
 
   const gain = css("--gain"), loss = css("--loss");
   draw("c-pl", { type: "bar", data: { labels, datasets: [{
@@ -480,24 +620,90 @@ function renderCharts() {
   }] }, options: baseOptions({ plugins: { legend: { display: false },
     tooltip: { callbacks: { label: (c) => `総損得: ${signed(c.raw)} 円` } } } }) });
 
-  // 銘柄別
-  const symbols = [...new Set(snapshots.flatMap((s) => s.items.map((i) => i.symbol)))];
-  symbols.forEach((sym) => {
-    if (!(sym in symbolColor)) symbolColor[sym] = Object.keys(symbolColor).length;
-  });
-  const colorOf = (sym) => {
-    const idx = symbolColor[sym];
-    return idx < SERIES.length ? css(SERIES[idx]) : css("--text-muted");
-  };
-  const nameOf = (sym) => {
-    for (const s of snapshots) { const it = s.items.find((i) => i.symbol === sym); if (it?.name) return `${sym} ${it.name}`; }
-    return sym;
-  };
-  const per = (key) => symbols.map((sym) => line(nameOf(sym),
-    snaps.map((s) => s.items.find((i) => i.symbol === sym)?.[key] ?? null), colorOf(sym)));
-  draw("c-items", { type: "line", data: { labels, datasets: per("value") }, options: baseOptions() });
-  draw("c-items-pl", { type: "line", data: { labels, datasets: per("pl") }, options: baseOptions() });
+  renderPriceChart(snaps, labels);
 }
+
+// ---------- 銘柄別 株価 ----------
+let priceMode = pref.get("priceMode", "price");
+let picked = null; // 表示する銘柄コードの集合
+
+function allSymbols() {
+  return [...new Set(snapshots.flatMap((s) => s.items.map((i) => i.symbol)))];
+}
+function nameOf(sym) {
+  for (let i = snapshots.length - 1; i >= 0; i--) {
+    const it = snapshots[i].items.find((x) => x.symbol === sym);
+    if (it?.name) return it.name;
+  }
+  return holdings.find((h) => h.symbol.toUpperCase() === sym)?.name ?? "";
+}
+function colorOf(sym) {
+  if (!(sym in symbolColor)) symbolColor[sym] = Object.keys(symbolColor).length;
+  const idx = symbolColor[sym];
+  return idx < SERIES.length ? css(SERIES[idx]) : `hsl(${(idx * 47) % 360} 55% 50%)`;
+}
+
+function ensurePicked() {
+  if (picked) return;
+  const saved = pref.get("pickedSymbols", null);
+  // 初回は評価額の大きい順に5銘柄
+  picked = new Set(saved ?? [...(snapshots.at(-1)?.items ?? [])].sort((a, b) => b.value - a.value).slice(0, 5).map((i) => i.symbol));
+}
+
+function renderPicker() {
+  const box = $("#picker"); box.innerHTML = "";
+  const syms = allSymbols();
+  if (!syms.length) { box.innerHTML = `<span class="muted">保存データがありません</span>`; return; }
+  for (const sym of syms) {
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = picked.has(sym);
+    cb.addEventListener("change", () => { cb.checked ? picked.add(sym) : picked.delete(sym); savePicked(); renderCharts(); });
+    label.append(cb);
+    label.insertAdjacentHTML("beforeend", `<span class="dot" style="background:${colorOf(sym)}"></span>${esc(sym)} ${esc(nameOf(sym))}`);
+    box.appendChild(label);
+  }
+}
+const savePicked = () => pref.set("pickedSymbols", [...picked]);
+
+function renderPriceChart(snaps, labels) {
+  ensurePicked();
+  renderPicker();
+  document.querySelectorAll("#price-mode button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode === priceMode));
+  const curOf = {};
+  const sets = allSymbols().filter((sym) => picked.has(sym)).map((sym) => {
+    let data = snaps.map((s) => {
+      const it = s.items.find((i) => i.symbol === sym);
+      if (it) curOf[sym] = it.currency;
+      return it ? it.price : null;
+    });
+    if (priceMode === "change") {
+      const base = data.find((v) => v != null);
+      data = data.map((v) => (v == null || !base ? null : (v / base - 1) * 100));
+    }
+    const ds = line(`${sym} ${nameOf(sym)}`, data, colorOf(sym));
+    ds.sym = sym;
+    return ds;
+  });
+  const opts = baseOptions();
+  opts.plugins.legend = { display: false }; // 色は上の選択欄に表示
+  delete opts.scales.y.ticks.precision;
+  if (priceMode === "change") {
+    opts.scales.y.ticks.callback = (v) => signed(v, 0) + "%";
+    opts.plugins.tooltip = { callbacks: { label: (c) => `${c.dataset.label}: ${signed(c.raw, 2)}%` } };
+  } else {
+    opts.scales.y.ticks.callback = (v) => upTo(v, 2);
+    opts.plugins.tooltip = { callbacks: { label: (c) => `${c.dataset.label}: ${upTo(c.raw, 2)} ${unitOf(curOf[c.dataset.sym] ?? "JPY").trim()}` } };
+  }
+  draw("c-prices", { type: "line", data: { labels, datasets: sets }, options: opts });
+}
+
+$("#price-mode").addEventListener("click", (ev) => {
+  const m = ev.target.dataset?.mode; if (!m) return;
+  priceMode = m; pref.set("priceMode", m); renderCharts();
+});
+$("#pick-all").addEventListener("click", () => { picked = new Set(allSymbols()); savePicked(); renderCharts(); });
+$("#pick-none").addEventListener("click", () => { picked = new Set(); savePicked(); renderCharts(); });
 
 function renderHistory() {
   const tb = $("#hist"); tb.innerHTML = "";
@@ -507,6 +713,7 @@ function renderHistory() {
     tr.innerHTML = `<td>${s.date}</td><td class="num">${yen(s.total_value)}</td>
       <td class="num">${yen(s.total_cost)}</td><td class="num ${cls(s.total_pl)}">${signed(s.total_pl)}</td>
       <td class="num ${cls(rate)}">${rate == null ? "-" : signed(rate, 2) + "%"}</td>
+      <td class="num">${s.cash == null ? "-" : yen(s.cash)}</td>
       <td class="muted">${Object.entries(s.fx_rates || {}).map(([c, r]) => `${c} ${yen(r, 2)}`).join(", ")}</td>
       <td class="muted">${s.saved_at}</td><td><button class="icon" title="この日のデータを削除">✕</button></td>`;
     tr.querySelector("button").addEventListener("click", async () => {
@@ -754,7 +961,139 @@ function drawFinCharts(d) {
       borderRadius: 4, maxBarThickness: 32 }] }, options: divOpts });
 }
 
-loadHoldings(); loadSnapshots();
+// ---------- タブ ----------
+function showView(name) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.view === name));
+  $("#view-portfolio").hidden = name !== "portfolio";
+  $("#view-dividends").hidden = name !== "dividends";
+  pref.set("view", name);
+  if (name === "dividends") loadDividends(); else renderCharts();
+}
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+
+// ---------- 配当実績 ----------
+let divData = { records: [], summary: [], rates: {}, default_tax: {} };
+let divYear = pref.get("divYear", new Date().getFullYear());
+const extraYears = new Set(); // 行がまだ無いが追加した年
+
+function dStatus(msg, err = false) { const el = $("#d-status"); el.textContent = msg; el.style.color = err ? "var(--loss)" : ""; }
+
+async function loadDividends() { setDiv(await api("GET", "/api/dividends")); }
+function setDiv(d) { divData = d; renderDividends(); }
+
+function divYears() {
+  const ys = new Set([...divData.records.map((r) => r.year), ...extraYears, new Date().getFullYear(), divYear]);
+  return [...ys].sort((a, b) => a - b);
+}
+
+const D_FIELDS = [
+  { key: "symbol", cls: "sym" }, { key: "name", cls: "nm" }, { key: "currency", cls: "cur" },
+  { key: "dps", num: true }, { key: "shares", num: true }, { key: "fx_rate", num: true, fx: true },
+  { key: "tax_rate", num: true, tax: true },
+];
+
+function renderDividends() {
+  const years = divYears();
+  const sel = $("#d-year-sel");
+  sel.innerHTML = years.map((y) => `<option value="${y}" ${y === divYear ? "selected" : ""}>${y}年</option>`).join("");
+  const idx = years.indexOf(divYear);
+  $("#d-prev").disabled = idx <= 0; $("#d-next").disabled = idx >= years.length - 1;
+  document.querySelectorAll(".d-year").forEach((el) => { el.textContent = divYear; });
+
+  const rows = divData.records.filter((r) => r.year === divYear);
+  const tb = $("#d-rows"); tb.innerHTML = "";
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    for (const f of D_FIELDS) {
+      const td = document.createElement("td");
+      if (f.num) td.className = "num";
+      const inp = document.createElement("input");
+      inp.value = r[f.key] ?? ""; if (f.cls) inp.className = f.cls;
+      if (f.num) inp.inputMode = "decimal";
+      if (f.fx) {
+        if (r.currency === "JPY") { inp.disabled = true; inp.value = ""; inp.placeholder = "-"; }
+        else inp.placeholder = r.fx_used ? `現在 ${yen(r.fx_used, 2)}` : "未取得";
+      }
+      if (f.tax) { inp.placeholder = `標準 ${r.currency === "JPY" ? divData.default_tax.JPY : divData.default_tax.foreign}`; inp.title = "空欄なら標準税率。NISA は 0"; inp.style.minWidth = "90px"; }
+      inp.addEventListener("change", () => updateDiv(r.id, f.key, inp.value));
+      td.appendChild(inp); tr.appendChild(td);
+    }
+    tr.insertAdjacentHTML("beforeend", `
+      <td class="num">${yen(r.gross)}${r.currency !== "JPY" ? `<div class="subline muted">${upTo(r.gross_native, 2)} ${r.currency}</div>` : ""}</td>
+      <td class="num">${yen(r.net)}</td>
+      <td><button class="icon" title="行を削除">✕</button></td>`);
+    tr.querySelector("button.icon").addEventListener("click", async () => {
+      if (!confirm(`「${r.symbol || "(空行)"} ${r.name}」の ${r.year}年の配当を削除しますか？`)) return;
+      setDiv(await api("DELETE", `/api/dividends/${r.id}`));
+    });
+    tb.appendChild(tr);
+  }
+  if (!rows.length) tb.innerHTML = `<tr><td colspan="10" class="muted" style="padding:16px">
+    ${divYear}年の配当はまだありません。「行を追加」または「保有銘柄から取り込む」で入力してください。</td></tr>`;
+
+  const gross = rows.reduce((a, r) => a + (r.gross ?? 0), 0);
+  const net = rows.reduce((a, r) => a + (r.net ?? 0), 0);
+  $("#d-f-gross").textContent = yen(gross); $("#d-f-net").textContent = yen(net);
+  $("#d-gross").textContent = yen(gross); $("#d-net").textContent = yen(net);
+  const upToYear = divData.summary.filter((y) => y.year <= divYear);
+  $("#d-cum-gross").textContent = yen(upToYear.reduce((a, y) => a + y.gross, 0));
+  $("#d-cum-net").textContent = yen(upToYear.reduce((a, y) => a + y.net, 0));
+
+  // 年ごとの集計表と累積
+  $("#d-summary").innerHTML = [...divData.summary].reverse().map((y) => `
+    <tr${y.year === divYear ? ' style="font-weight:600"' : ""}><td>${y.year}年</td><td class="num">${y.count}</td>
+    <td class="num">${yen(y.gross)}</td><td class="num">${yen(y.net)}</td>
+    <td class="num">${yen(y.cum_gross)}</td><td class="num">${yen(y.cum_net)}</td></tr>`).join("")
+    || `<tr><td colspan="6" class="muted">まだ配当の記録がありません</td></tr>`;
+  drawDivCharts();
+}
+
+function drawDivCharts() {
+  const sm = divData.summary;
+  const labels = sm.map((y) => `${y.year}年`);
+  const bar = (label, data, color) => ({ label, data, backgroundColor: color, borderRadius: 4, maxBarThickness: 32 });
+  draw("d-c-year", { type: "bar", data: { labels, datasets: [
+    bar("額面", sm.map((y) => y.gross), css("--series-1")),
+    bar("手取り", sm.map((y) => y.net), css("--series-3")),
+  ] }, options: baseOptions() });
+  draw("d-c-cum", { type: "line", data: { labels, datasets: [
+    line("累積（額面）", sm.map((y) => y.cum_gross), css("--series-1")),
+    line("累積（手取り）", sm.map((y) => y.cum_net), css("--series-3")),
+  ] }, options: baseOptions() });
+}
+
+async function updateDiv(id, key, value) {
+  try { setDiv(await api("PUT", `/api/dividends/${id}`, { [key]: value })); dStatus("更新しました"); }
+  catch (e) { dStatus(e.message, true); renderDividends(); }
+}
+function setYear(y) { divYear = y; pref.set("divYear", y); renderDividends(); }
+$("#d-year-sel").addEventListener("change", (ev) => setYear(+ev.target.value));
+$("#d-prev").addEventListener("click", () => { const ys = divYears(); setYear(ys[ys.indexOf(divYear) - 1]); });
+$("#d-next").addEventListener("click", () => { const ys = divYears(); setYear(ys[ys.indexOf(divYear) + 1]); });
+$("#d-add-year").addEventListener("click", () => {
+  const v = prompt("追加する年（西暦）", String(Math.min(...divYears()) - 1));
+  if (v == null) return;
+  const y = parseInt(v, 10);
+  if (!(y >= 1900 && y <= 2200)) { dStatus("年は西暦4桁で入力してください", true); return; }
+  extraYears.add(y); setYear(y);
+});
+$("#d-add").addEventListener("click", async () => {
+  try {
+    setDiv(await api("POST", "/api/dividends", { year: divYear, symbol: "" }));
+    $("#d-rows tr:last-child input")?.focus();
+  } catch (e) { dStatus(e.message, true); }
+});
+$("#d-import").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget; btn.disabled = true;
+  try {
+    const d = await api("POST", "/api/dividends/import", { year: divYear });
+    setDiv(d);
+    dStatus(d.added ? `${d.added}銘柄を取り込みました。配当単価と所持数を実際の値に直してください` : "取り込む銘柄はありません（すべて追加済み）");
+  } catch (e) { dStatus(e.message, true); }
+  btn.disabled = false;
+});
+
+loadHoldings().then(loadSnapshots).then(() => { if (pref.get("view", "portfolio") === "dividends") showView("dividends"); });
 </script>
 </body>
 </html>

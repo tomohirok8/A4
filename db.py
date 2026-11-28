@@ -1,10 +1,12 @@
 """SQLite によるデータ永続化."""
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-DB_PATH = Path(__file__).with_name("portfolio.db")
+# 環境変数 PORTFOLIO_DB で別の DB ファイルを使える（動作確認用）
+DB_PATH = Path(os.environ.get("PORTFOLIO_DB") or Path(__file__).with_name("portfolio.db"))
 JST = timezone(timedelta(hours=9), "JST")
 
 SCHEMA = """
@@ -68,6 +70,20 @@ CREATE TABLE IF NOT EXISTS edinet_scanned (
     date TEXT PRIMARY KEY          -- 書類一覧を取得済みの日付
 );
 
+-- 実際に受け取った配当（西暦年ごと）
+CREATE TABLE IF NOT EXISTS dividend_records (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    year     INTEGER NOT NULL,              -- 西暦年
+    symbol   TEXT    NOT NULL DEFAULT '',
+    name     TEXT    NOT NULL DEFAULT '',
+    currency TEXT    NOT NULL DEFAULT 'JPY',
+    dps      REAL    NOT NULL DEFAULT 0,    -- 配当単価（1株あたり、銘柄の通貨）
+    shares   REAL    NOT NULL DEFAULT 0,    -- 配当を受け取った株数
+    fx_rate  REAL,                          -- 受取時の為替レート（外貨のみ。空なら現在レート）
+    tax_rate REAL                           -- 税率 %（空なら通貨ごとの標準税率）
+);
+CREATE INDEX IF NOT EXISTS dividend_records_year ON dividend_records (year);
+
 -- 財務情報のキャッシュ（取得に時間がかかるため一定時間再利用する）
 CREATE TABLE IF NOT EXISTS fundamentals (
     symbol     TEXT PRIMARY KEY,
@@ -88,6 +104,7 @@ MIGRATIONS = {
     },
     "snapshots": {
         "fx_rates": "TEXT",                           # その日のレート一覧 (JSON)
+        "cash": "REAL",                               # その日の買付余力（以前の保存分は空）
     },
 }
 

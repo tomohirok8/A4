@@ -6,6 +6,12 @@
       "runtimeExecutable": ".venv/bin/python",
       "runtimeArgs": ["app.py"],
       "port": 5050
+    },
+    {
+      "name": "portfolio-test",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": ["PORT=5051", "PORTFOLIO_DB=/private/tmp/claude-501/-Users-tomohirok-python-A4/b6b1f454-71cf-4aed-a8a4-8a0374dad37e/scratchpad/test.db", ".venv/bin/python", "app.py"],
+      "port": 5051
     }
   ]
 }

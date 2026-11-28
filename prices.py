@@ -131,3 +131,34 @@ def fetch_fx_rate(currency: str) -> float:
         return 1.0
     price, _ = _fetch(f"{currency}JPY=X", f"{currency}/JPY 為替レート")
     return round(price, 4)
+
+
+def fetch_name(symbol: str) -> str:
+    """銘柄名を返す。日本株は日本語名（Yahoo の検索 API、全角英数は半角に直す）。見つからなければ空文字."""
+    import unicodedata
+
+    ticker = to_ticker(symbol)
+    query = urllib.parse.urlencode({"q": ticker, "lang": "ja-JP", "region": "JP",
+                                    "quotesCount": 5, "newsCount": 0})
+    ctx = _ssl_context()
+    for host in _CHART_HOSTS:
+        req = urllib.request.Request(f"https://{host}/v1/finance/search?{query}", headers=_HEADERS)
+        try:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT, context=ctx) as res:
+                data = json.load(res)
+        except Exception:  # noqa: BLE001
+            continue
+        for q in data.get("quotes") or []:
+            if str(q.get("symbol", "")).upper() == ticker:
+                name = q.get("longname") or q.get("shortname") or ""
+                return unicodedata.normalize("NFKC", name).strip()
+        break
+    # 予備: チャート API のメタ情報（英語名）
+    try:
+        path = f"/v8/finance/chart/{urllib.parse.quote(ticker)}?range=1d&interval=1d"
+        req = urllib.request.Request(f"https://{_CHART_HOSTS[0]}{path}", headers=_HEADERS)
+        with urllib.request.urlopen(req, timeout=_TIMEOUT, context=ctx) as res:
+            meta = (json.load(res)["chart"]["result"] or [{}])[0].get("meta") or {}
+        return (meta.get("longName") or meta.get("shortName") or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""

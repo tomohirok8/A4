@@ -6,6 +6,7 @@ __pycache__/
 # 個人データ（保有銘柄・保存履歴・API キーなどの設定を含む）
 portfolio.db
 portfolio.db-journal
+portfolio.db.bak-*
 
 # macOS
 .DS_Store
