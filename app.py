@@ -1,14 +1,16 @@
 """株ポートフォリオ管理アプリ (Flask)."""
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 from flask import Flask, abort, jsonify, render_template, request
 
 from db import connect, get_settings, init_db, now_jst, set_setting
 from fundamentals import fetch_fundamentals
-from prices import default_currency, fetch_fx_rate, fetch_name, fetch_quote
+from prices import default_currency, fetch_fiscal_end_month, fetch_fx_rate, fetch_name, fetch_quote
 
 FUNDAMENTALS_TTL = timedelta(hours=24)
+FISCAL_TTL = timedelta(days=30)
 
 app = Flask(__name__)
 app.json.ensure_ascii = False
@@ -165,6 +167,31 @@ def delete_holding(hid: int):
     with connect() as conn:
         conn.execute("DELETE FROM holdings WHERE id = ?", (hid,))
     return "", 204
+
+
+@app.post("/api/holdings/fill-names")
+def fill_names():
+    """銘柄名が空の行（保有銘柄・配当実績）の銘柄名をまとめて自動取得する."""
+    with connect() as conn:
+        targets = {r["symbol"].strip().upper() for table in ("holdings", "dividend_records")
+                   for r in conn.execute(f"SELECT symbol FROM {table} WHERE symbol != '' AND TRIM(name) = ''")}
+    names = {}
+    if targets:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            names = dict(zip(targets, pool.map(fetch_name, targets)))
+    filled = 0
+    with connect() as conn:
+        for sym, name in names.items():
+            if not name:
+                continue
+            for table in ("holdings", "dividend_records"):
+                cur = conn.execute(f"UPDATE {table} SET name = ? WHERE UPPER(TRIM(symbol)) = ? AND TRIM(name) = ''",
+                                   (name, sym))
+                filled += cur.rowcount
+        payload = _holdings_payload(conn)
+    payload["filled"] = filled
+    payload["not_found"] = sorted(s for s, n in names.items() if not n)
+    return jsonify(payload)
 
 
 # ---- 為替レート ----
@@ -383,8 +410,51 @@ def delete_snapshot(date: str):
 DEFAULT_TAX = {"JPY": 20.315}
 DEFAULT_TAX_FOREIGN = round((1 - 0.9 * (1 - 0.20315)) * 100, 3)
 DIV_EDITABLE = {"symbol": str, "name": str, "currency": str, "dps": float, "shares": float,
-                "fx_rate": float, "tax_rate": float}
-DIV_NULLABLE = {"fx_rate", "tax_rate"}
+                "fx_rate": float, "tax_rate": float, "month": float}
+DIV_NULLABLE = {"fx_rate", "tax_rate", "month"}
+
+
+def fiscal_end_months(symbols) -> dict:
+    """{銘柄コード(大文字): 決算期末の月 or None}。30日間 DB にキャッシュする."""
+    symbols = {s.strip().upper() for s in symbols if s and s.strip()}
+    out, stale = {}, set()
+    now = now_jst()
+    with connect() as conn:
+        for sym in symbols:
+            r = conn.execute("SELECT * FROM symbol_info WHERE symbol = ?", (sym,)).fetchone()
+            if r and now - datetime.fromisoformat(r["fetched_at"]) < FISCAL_TTL:
+                out[sym] = r["fiscal_end_month"]
+            else:
+                stale.add(sym)
+    if stale:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            fetched = dict(zip(stale, pool.map(fetch_fiscal_end_month, stale)))
+        with connect() as conn:
+            for sym, month in fetched.items():
+                conn.execute("INSERT OR REPLACE INTO symbol_info (symbol, fiscal_end_month, fetched_at)"
+                             " VALUES (?, ?, ?)", (sym, month, now.isoformat()))
+        out.update(fetched)
+    return out
+
+
+def dividend_months(fiscal_month):
+    """配当月 = 決算期末の3か月後（期末配当）と9か月後（中間配当）。暦の順に並べる."""
+    if not fiscal_month:
+        return [None, None]
+    return sorted((fiscal_month + k - 1) % 12 + 1 for k in (3, 9))
+
+
+def _auto_month(conn, data: dict, year: int, exclude_id=None) -> None:
+    """銘柄コードがあって受取月が未指定なら、その年にまだ使っていない配当月を入れる."""
+    if not data.get("symbol") or data.get("month") is not None:
+        return
+    months = [m for m in dividend_months(fiscal_end_months([data["symbol"]]).get(data["symbol"].upper())) if m]
+    if not months:
+        return
+    used = {r["month"] for r in conn.execute(
+        "SELECT month FROM dividend_records WHERE year = ? AND UPPER(symbol) = ? AND id IS NOT ?",
+        (year, data["symbol"].upper(), exclude_id))}
+    data["month"] = next((m for m in months if m not in used), months[0])
 
 
 def default_tax(currency: str) -> float:
@@ -426,6 +496,10 @@ def _parse_dividend(data: dict) -> dict:
                 if not (len(val) == 3 and val.isalpha()):
                     abort(400, "通貨は JPY / USD のような3文字で入力してください")
         out[key] = val
+    if out.get("month") is not None:
+        if out["month"] != int(out["month"]) or not 1 <= out["month"] <= 12:
+            abort(400, "受取月は 1〜12 で入力してください")
+        out["month"] = int(out["month"])
     return out
 
 
@@ -433,6 +507,9 @@ def _dividends_payload(conn) -> dict:
     rates = load_rates(conn)
     rows = [enrich_dividend(r, rates) for r in conn.execute(
         "SELECT * FROM dividend_records ORDER BY year, id").fetchall()]
+    fiscal = {r["symbol"]: r["fiscal_end_month"] for r in conn.execute("SELECT * FROM symbol_info")}
+    for r in rows:
+        r["fiscal_end_month"] = fiscal.get(r["symbol"].strip().upper())
     # 年ごとの合計と累積
     years: dict = {}
     for r in rows:
@@ -473,6 +550,8 @@ def add_dividend():
     data.setdefault("symbol", "")
     data.setdefault("currency", default_currency(data["symbol"]) if data["symbol"] else "JPY")
     _fill_name(data)
+    with connect() as conn:
+        _auto_month(conn, data, data["year"])
     cols = ", ".join(data)
     marks = ", ".join("?" for _ in data)
     with connect() as conn:
@@ -482,22 +561,36 @@ def add_dividend():
 
 @app.post("/api/dividends/import")
 def import_dividends():
-    """保有銘柄（所持数 > 0）の配当単価と所持数を、指定した年にまだ無い銘柄だけ追加する."""
+    """保有銘柄（所持数 > 0）を、指定した年にまだ無い銘柄だけ追加する.
+
+    配当は普通年2回なので1銘柄2行（期末配当・中間配当）にし、配当単価は年間配当の半分を入れておく。
+    受取月は決算期末の3か月後と9か月後。
+    """
     year = _year((request.get_json(force=True) or {}).get("year"))
     with connect() as conn:
         have = {r["symbol"].upper() for r in conn.execute(
             "SELECT symbol FROM dividend_records WHERE year = ?", (year,))}
-        added = 0
+        todo, seen = [], set()
         for h in conn.execute("SELECT * FROM holdings WHERE symbol != '' AND shares > 0 ORDER BY id"):
-            if h["symbol"].upper() in have:
-                continue
-            have.add(h["symbol"].upper())
-            conn.execute("INSERT INTO dividend_records (year, symbol, name, currency, dps, shares)"
-                         " VALUES (?, ?, ?, ?, ?, ?)",
-                         (year, h["symbol"], h["name"], h["currency"], h["dividend_per_share"], h["shares"]))
-            added += 1
+            sym = h["symbol"].strip().upper()
+            if sym not in have and sym not in seen:
+                seen.add(sym)
+                todo.append(dict(h))
+    fiscal = fiscal_end_months(h["symbol"] for h in todo)
+    no_month = []
+    with connect() as conn:
+        for h in todo:
+            months = dividend_months(fiscal.get(h["symbol"].strip().upper()))
+            if months[0] is None:
+                no_month.append(h["symbol"])
+            for m in months:
+                conn.execute("INSERT INTO dividend_records (year, symbol, name, currency, dps, shares, month)"
+                             " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                             (year, h["symbol"], h["name"], h["currency"], h["dividend_per_share"] / 2,
+                              h["shares"], m))
         payload = _dividends_payload(conn)
-    payload["added"] = added
+    payload["added"] = len(todo)
+    payload["no_month"] = no_month
     return jsonify(payload)
 
 
@@ -513,6 +606,13 @@ def update_dividend(rid: int):
         data["currency"] = default_currency(data["symbol"])
     if "symbol" in data:
         _fill_name(data)
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM dividend_records WHERE id = ?", (rid,)).fetchone()
+        if row is None:
+            abort(404)
+        # 銘柄コードを入れたときに受取月が空なら自動で入れる
+        if "symbol" in data and "month" not in data and row["month"] is None:
+            _auto_month(conn, data, data.get("year", row["year"]), exclude_id=rid)
     sets = ", ".join(f"{k} = ?" for k in data)
     with connect() as conn:
         cur = conn.execute(f"UPDATE dividend_records SET {sets} WHERE id = ?", [*data.values(), rid])

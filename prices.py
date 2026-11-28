@@ -162,3 +162,18 @@ def fetch_name(symbol: str) -> str:
         return (meta.get("longName") or meta.get("shortName") or "").strip()
     except Exception:  # noqa: BLE001
         return ""
+
+
+def fetch_fiscal_end_month(symbol: str):
+    """決算期末の月（1〜12）を返す。取得できなければ None."""
+    from datetime import datetime, timezone
+
+    if yf is None:
+        return None
+    try:
+        ts = yf.Ticker(to_ticker(symbol)).info.get("lastFiscalYearEnd")
+    except Exception:  # noqa: BLE001
+        return None
+    if not ts:
+        return None
+    return datetime.fromtimestamp(ts, timezone.utc).month

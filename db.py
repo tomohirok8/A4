@@ -84,6 +84,13 @@ CREATE TABLE IF NOT EXISTS dividend_records (
 );
 CREATE INDEX IF NOT EXISTS dividend_records_year ON dividend_records (year);
 
+-- 銘柄ごとの決算期末の月（配当月の推定に使う）
+CREATE TABLE IF NOT EXISTS symbol_info (
+    symbol           TEXT PRIMARY KEY,
+    fiscal_end_month INTEGER,          -- 1〜12。取得できなければ空
+    fetched_at       TEXT NOT NULL
+);
+
 -- 財務情報のキャッシュ（取得に時間がかかるため一定時間再利用する）
 CREATE TABLE IF NOT EXISTS fundamentals (
     symbol     TEXT PRIMARY KEY,
@@ -105,6 +112,9 @@ MIGRATIONS = {
     "snapshots": {
         "fx_rates": "TEXT",                           # その日のレート一覧 (JSON)
         "cash": "REAL",                               # その日の買付余力（以前の保存分は空）
+    },
+    "dividend_records": {
+        "month": "INTEGER",                           # 配当の受取月 1〜12（以前の分は空）
     },
 }
 

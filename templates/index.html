@@ -284,15 +284,16 @@
       <div class="tablewrap">
         <table>
           <thead><tr>
-            <th>銘柄コード</th><th>銘柄名</th><th>通貨</th>
-            <th class="num">配当単価<span class="unit">1株・年間</span></th><th class="num">所持数</th>
+            <th>銘柄コード</th><th>銘柄名</th>
+            <th title="銘柄コードを入れると、決算期末の3か月後（期末配当）か9か月後（中間配当）を自動入力">受取月</th><th>通貨</th>
+            <th class="num">配当単価<span class="unit">1株・その回</span></th><th class="num">所持数</th>
             <th class="num" title="外貨建て配当を受け取ったときの為替レート。空欄なら現在のレート">為替レート</th>
             <th class="num" title="空欄なら標準税率（日本株 20.315%、外国株 28.283% = 米国10%源泉後に国内20.315%）。NISA は 0">税率 %</th>
             <th class="num">配当額<span class="unit">額面・円</span></th><th class="num">配当額<span class="unit">手取り・円</span></th><th></th>
           </tr></thead>
           <tbody id="d-rows"></tbody>
           <tfoot><tr>
-            <td colspan="7">合計（円）</td><td class="num" id="d-f-gross"></td><td class="num" id="d-f-net"></td><td></td>
+            <td colspan="8">合計（円）</td><td class="num" id="d-f-gross"></td><td class="num" id="d-f-net"></td><td></td>
           </tr></tfoot>
         </table>
       </div>
@@ -987,8 +988,8 @@ function divYears() {
 }
 
 const D_FIELDS = [
-  { key: "symbol", cls: "sym" }, { key: "name", cls: "nm" }, { key: "currency", cls: "cur" },
-  { key: "dps", num: true }, { key: "shares", num: true }, { key: "fx_rate", num: true, fx: true },
+  { key: "symbol", cls: "sym" }, { key: "name", cls: "nm" }, { key: "month", month: true },
+  { key: "currency", cls: "cur" }, { key: "dps", num: true }, { key: "shares", num: true }, { key: "fx_rate", num: true, fx: true },
   { key: "tax_rate", num: true, tax: true },
 ];
 
@@ -1007,6 +1008,15 @@ function renderDividends() {
     for (const f of D_FIELDS) {
       const td = document.createElement("td");
       if (f.num) td.className = "num";
+      if (f.month) {
+        const sel = document.createElement("select");
+        sel.innerHTML = `<option value="">-</option>` +
+          Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}" ${r.month === i + 1 ? "selected" : ""}>${i + 1}月</option>`).join("");
+        sel.title = r.fiscal_end_month ? `${r.fiscal_end_month}月決算` : "決算月は未取得";
+        sel.addEventListener("change", () => updateDiv(r.id, "month", sel.value));
+        td.appendChild(sel); tr.appendChild(td);
+        continue;
+      }
       const inp = document.createElement("input");
       inp.value = r[f.key] ?? ""; if (f.cls) inp.className = f.cls;
       if (f.num) inp.inputMode = "decimal";
@@ -1028,7 +1038,7 @@ function renderDividends() {
     });
     tb.appendChild(tr);
   }
-  if (!rows.length) tb.innerHTML = `<tr><td colspan="10" class="muted" style="padding:16px">
+  if (!rows.length) tb.innerHTML = `<tr><td colspan="11" class="muted" style="padding:16px">
     ${divYear}年の配当はまだありません。「行を追加」または「保有銘柄から取り込む」で入力してください。</td></tr>`;
 
   const gross = rows.reduce((a, r) => a + (r.gross ?? 0), 0);
@@ -1088,12 +1098,27 @@ $("#d-import").addEventListener("click", async (ev) => {
   try {
     const d = await api("POST", "/api/dividends/import", { year: divYear });
     setDiv(d);
-    dStatus(d.added ? `${d.added}銘柄を取り込みました。配当単価と所持数を実際の値に直してください` : "取り込む銘柄はありません（すべて追加済み）");
+    dStatus(d.added
+      ? `${d.added}銘柄を2行ずつ取り込みました（配当単価は年間配当の半分）。実際の値に直してください`
+        + (d.no_month.length ? `。決算月が取れず受取月が空: ${d.no_month.join(", ")}` : "")
+      : "取り込む銘柄はありません（この年に追加済み）");
   } catch (e) { dStatus(e.message, true); }
   btn.disabled = false;
 });
 
-loadHoldings().then(loadSnapshots).then(() => { if (pref.get("view", "portfolio") === "dividends") showView("dividends"); });
+// 銘柄名が空の行があれば自動で取得して埋める
+async function fillNames() {
+  if (!holdings.some((h) => h.symbol && !h.name.trim())) return;
+  status("銘柄名を取得中…");
+  try {
+    const d = await api("POST", "/api/holdings/fill-names");
+    setData(d);
+    if (d.filled) { status(`銘柄名を${d.filled}件入力しました`); loadSnapshots(); }
+    else status(d.not_found.length ? `銘柄名が見つかりません: ${d.not_found.join(", ")}` : "");
+  } catch (e) { status("銘柄名の取得に失敗: " + e.message, true); }
+}
+
+loadHoldings().then(loadSnapshots).then(fillNames).then(() => { if (pref.get("view", "portfolio") === "dividends") showView("dividends"); });
 </script>
 </body>
 </html>
